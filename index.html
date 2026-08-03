@@ -722,31 +722,106 @@ function renderBuild(){
 /* ---- сборка цепочки в одну картинку ---- */
 function rr(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath()}
 function loadImg(c){return new Promise(res=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>res(null);im.src=src(c.img)})}
-async function showCollage(chunks){
-  const cards=chunks.map(chunkCard).filter(Boolean);
-  if(!cards.length)return;
-  const m=document.createElement("div");m.id="modal";
-  m.innerHTML=`<div class="inner center"><div id="cwrap" style="min-height:140px;display:flex;align-items:center;justify-content:center;color:var(--ink2)">Собираю картинку…</div>
-    <p class="chint" style="margin:10px 0 0">Долгое нажатие по картинке — «Сохранить в Фото».</p>
-    <button class="btn sec mt" id="ccl">Закрыть</button></div>`;
-  document.body.appendChild(m);
-  m.onclick=e=>{if(e.target===m||e.target.id==="ccl")m.remove()};
-  const imgs=await Promise.all(cards.map(loadImg));
-  const SZ=210,OVX=46,OVY=10,PAD=16;
+let COLMODE=store.get("mnemo_colm","glue");
+const CUTS={};
+/* вырезаем объект с белого фона: заливка от краёв + обрезка по объекту */
+function cutout(im,id){
+  if(id&&CUTS[id])return CUTS[id];
+  const w=im.width,h=im.height;
+  const c=document.createElement("canvas");c.width=w;c.height=h;
+  const g=c.getContext("2d",{willReadFrequently:true});
+  g.drawImage(im,0,0);
+  let d;try{d=g.getImageData(0,0,w,h)}catch(e){return c}
+  const p=d.data,n=w*h,seen=new Uint8Array(n),st=[],T=232;
+  const light=i=>{const k=i<<2;return p[k]>=T&&p[k+1]>=T&&p[k+2]>=T};
+  const push=i=>{if(!seen[i]&&light(i)){seen[i]=1;st.push(i)}};
+  for(let x=0;x<w;x++){push(x);push((h-1)*w+x)}
+  for(let y=0;y<h;y++){push(y*w);push(y*w+w-1)}
+  while(st.length){const i=st.pop(),x=i%w,y=(i-x)/w;
+    if(x>0)push(i-1);if(x<w-1)push(i+1);if(y>0)push(i-w);if(y<h-1)push(i+w)}
+  let x0=w,y0=h,x1=-1,y1=-1;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x;
+    if(seen[i]){p[(i<<2)+3]=0}
+    else{if(x<x0)x0=x;if(x>x1)x1=x;if(y<y0)y0=y;if(y>y1)y1=y}}
+  /* мягкий край: полупрозрачность у пикселей на границе */
+  for(let y=1;y<h-1;y++)for(let x=1;x<w-1;x++){const i=y*w+x;
+    if(!seen[i]&&(seen[i-1]||seen[i+1]||seen[i-w]||seen[i+w]))p[(i<<2)+3]=150}
+  g.putImageData(d,0,0);
+  if(x1<0){if(id)CUTS[id]=c;return c}
+  const cw=x1-x0+1,ch=y1-y0+1;
+  const c2=document.createElement("canvas");c2.width=cw;c2.height=ch;
+  c2.getContext("2d").drawImage(c,x0,y0,cw,ch,0,0,cw,ch);
+  if(id)CUTS[id]=c2;
+  return c2;
+}
+/* режим «слитно»: образы без фона налезают друг на друга — цепочка */
+function drawGlue(cards,imgs){
+  const TS=210,PAD=26,K=.42,WIG=.13,R=2;
+  const cuts=cards.map((c,i)=>imgs[i]?cutout(imgs[i],c.id):null);
+  const objs=cuts.map(cv=>{if(!cv)return null;const s=TS/Math.max(cv.width,cv.height);
+    return {cv:cv,w:Math.round(cv.width*s),h:Math.round(cv.height*s)}});
+  /* одна линия слева направо; на много образов — переносим рядами, но не чаще чем по 8 */
+  const n=objs.length,RN=Math.ceil(n/8),rows=[];
+  let left=n,i0=0;
+  for(let r=0;r<RN;r++){const take=Math.ceil(left/(RN-r));rows.push(objs.slice(i0,i0+take));i0+=take;left-=take}
+
+  const rowW=rows.map(rw=>{let x=0;rw.forEach((o,i)=>{if(!o)return;
+    if(i)x-=Math.round(K*Math.min(o.w,(rw[i-1]||o).w));x+=o.w});return x});
+  const rowH=rows.map(rw=>Math.max(...rw.map(o=>o?o.h:0)));
+  const W=Math.round(Math.max(...rowW)+PAD*2);
+  let H=PAD*2;rowH.forEach((h,r)=>{H+=Math.round(h*(1+WIG))-(r?Math.round(h*.12):0)});
+  const cv=document.createElement("canvas");
+  cv.width=W*R;cv.height=H*R;cv.style.borderRadius="12px";
+  /* линию не сплющиваем по ширине экрана — держим высоту и листаем вбок */
+  cv.style.height=Math.min(H,300)+"px";cv.style.width=Math.round(W*Math.min(H,300)/H)+"px";cv.style.maxWidth="none";
+  const g=cv.getContext("2d");g.scale(R,R);
+  const bg=g.createLinearGradient(0,0,0,H);bg.addColorStop(0,"#f7f8fd");bg.addColorStop(1,"#e6e9f6");
+  g.fillStyle=bg;g.fillRect(0,0,W,H);
+  let k=0,yTop=PAD;
+  rows.forEach((rw,r)=>{
+    const rtl=false,hh=rowH[r];
+    /* координаты слева направо, для нечётного ряда — зеркалим порядок */
+    const xs=[];let x=Math.round((W-rowW[r])/2);
+    rw.forEach((o,i)=>{if(!o){xs.push(x);return}
+      if(i)x-=Math.round(K*Math.min(o.w,(rw[i-1]||o).w));
+      xs.push(x);x+=o.w});
+    const marks=[];
+    rw.forEach((o,i)=>{
+      const c=cards[k+i];if(!o){return}
+      const ax=rtl?(W-xs[i]-o.w):xs[i];
+      const ay=yTop+Math.round((hh-o.h)/2)+Math.round(hh*WIG*(i%2));
+      g.save();
+      g.translate(ax+o.w/2,ay+o.h/2);g.rotate((((i*53)%9)-4)*Math.PI/180);
+      g.shadowColor="rgba(30,30,70,.28)";g.shadowBlur=12;g.shadowOffsetY=4;
+      g.drawImage(o.cv,-o.w/2,-o.h/2,o.w,o.h);
+      g.restore();
+      marks.push({x:ax+o.w/2,y:ay+13,q:c.q,name:c.name});
+    });
+    /* номера рисуем последними — их ничто не перекрывает */
+    marks.forEach(mk=>{
+      g.beginPath();g.arc(mk.x,mk.y,15,0,7);g.fillStyle="#2323c8";g.fill();
+      g.strokeStyle="#fff";g.lineWidth=2;g.stroke();
+      g.fillStyle="#fff";g.font="800 "+(mk.q.length>2?11:13)+"px -apple-system,BlinkMacSystemFont,sans-serif";
+      g.textAlign="center";g.textBaseline="middle";g.fillText(mk.q,mk.x,mk.y);
+    });
+    k+=rw.length;yTop+=Math.round(hh*(1+WIG))-Math.round(hh*.12);
+  });
+  return cv;
+}
+/* режим «карточками»: фото в рамках сеткой */
+function drawCards(cards,imgs){
+  const SZ=210,OVX=46,OVY=10,PAD=16,R=2;
   const cols=Math.min(3,cards.length),rows=Math.ceil(cards.length/cols);
   const stepX=SZ-OVX,stepY=SZ-OVY;
   const W=PAD*2+stepX*(cols-1)+SZ,H=PAD*2+stepY*(rows-1)+SZ;
-  const cv=document.createElement("canvas"),R=2;
+  const cv=document.createElement("canvas");
   cv.width=W*R;cv.height=H*R;cv.style.width="100%";cv.style.height="auto";cv.style.borderRadius="12px";
   const g=cv.getContext("2d");g.scale(R,R);
   g.fillStyle="#eef0f8";g.fillRect(0,0,W,H);
   cards.forEach((c,i)=>{
     const r=Math.floor(i/cols);let col=i%cols;const rtl=r%2===1;if(rtl)col=cols-1-col;
     const x=PAD+stepX*col,y=PAD+stepY*r;
-    const tilt=(((i*37)%9)-4)*Math.PI/180;
-    const S1=SZ-10;
-    /* номер ставим с той стороны, которую не перекроет следующая карточка */
-    const bx=rtl?SZ-25:25;
+    const tilt=(((i*37)%9)-4)*Math.PI/180,S1=SZ-10,bx=rtl?SZ-25:25;
     g.save();
     g.translate(x+SZ/2,y+SZ/2);g.rotate(tilt);g.translate(-SZ/2,-SZ/2);
     g.save();g.shadowColor="rgba(20,20,50,.35)";g.shadowBlur=14;g.shadowOffsetY=4;
@@ -766,13 +841,45 @@ async function showCollage(chunks){
     g.fillText(c.q,bx,25);
     g.restore();
   });
-  const w=$("#cwrap");if(!w)return;
-  w.innerHTML="";w.style.display="block";w.appendChild(cv);
-  const a=document.createElement("a");
-  a.className="btn mt";a.textContent="Скачать картинку";a.download="mnemo-"+digitsOf(BLD.raw)+".png";
-  try{a.href=cv.toDataURL("image/png")}catch(e){}
-  a.style.textDecoration="none";
-  w.appendChild(a);
+  return cv;
+}
+async function showCollage(chunks){
+  const cards=chunks.map(chunkCard).filter(Boolean);
+  if(!cards.length)return;
+  const m=document.createElement("div");m.id="modal";
+  m.innerHTML=`<div class="inner center">
+    <div class="chips" id="cmode" style="justify-content:center">
+      <button class="chip ${COLMODE==="glue"?"on":""}" data-cm="glue">Слитно</button>
+      <button class="chip ${COLMODE==="cards"?"on":""}" data-cm="cards">Карточками</button></div>
+    <div id="cwrap" style="min-height:140px;display:flex;align-items:center;justify-content:center;color:var(--ink2)">Собираю картинку…</div>
+    <p class="chint" style="margin:10px 0 0">Долгое нажатие по картинке — «Сохранить в Фото».</p>
+    <button class="btn sec mt" id="ccl">Закрыть</button></div>`;
+  document.body.appendChild(m);
+  m.onclick=e=>{if(e.target===m||e.target.id==="ccl")m.remove()};
+  const imgs=await Promise.all(cards.map(loadImg));
+  const paint=()=>{
+    const w=$("#cwrap");if(!w)return;
+    w.innerHTML="";w.style.display="block";
+    let cv,glue=COLMODE==="glue";
+    try{cv=glue?drawGlue(cards,imgs):drawCards(cards,imgs)}catch(e){cv=drawCards(cards,imgs);glue=false}
+    if(glue){const sc=document.createElement("div");
+      sc.style.cssText="overflow-x:auto;-webkit-overflow-scrolling:touch;width:100%;border-radius:12px";
+      sc.appendChild(cv);w.appendChild(sc);
+      const hint=document.createElement("div");hint.className="chint";hint.style.margin="6px 0 0";
+      hint.textContent=cv.getBoundingClientRect().width>sc.clientWidth?"Листайте картинку вбок →":"";
+      w.appendChild(hint);
+    }else{w.appendChild(cv)}
+    const a=document.createElement("a");
+    a.className="btn mt";a.textContent="Скачать картинку";a.download="mnemo-"+digitsOf(BLD.raw)+".png";
+    try{a.href=cv.toDataURL("image/png")}catch(e){}
+    a.style.textDecoration="none";w.appendChild(a);
+    document.querySelectorAll("#cmode .chip").forEach(b=>b.onclick=()=>{
+      COLMODE=b.dataset.cm;store.set("mnemo_colm",COLMODE);
+      document.querySelectorAll("#cmode .chip").forEach(z=>z.classList.toggle("on",z.dataset.cm===COLMODE));
+      paint();
+    });
+  };
+  paint();
 }
 function buildTest(chunks,d){
   const t=BLD.test;
