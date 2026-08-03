@@ -668,6 +668,7 @@ function renderBuild(){
       });
     }
     html+=`<div class="row mt"><button class="btn sec small" id="bshuf" style="flex:1">↻ Другие связки</button><button class="btn sec small" id="bcopy" style="flex:1">Скопировать текст</button></div>
+    <button class="btn sec mt" id="bpic">🖼 Собрать одной картинкой</button>
     <button class="btn mt" id="btest">Проверить себя</button>
     <div class="panel mt">
       <input class="search" id="bname" placeholder="Название: например «телефон мамы»" value="${esc(BLD.name||"")}" style="margin-bottom:8px">
@@ -703,6 +704,7 @@ function renderBuild(){
     try{document.execCommand("copy")}catch(e){}
     ta.remove();cp.textContent="Скопировано ✓";setTimeout(()=>{cp.textContent="Скопировать текст"},1200);
   };
+  const bp=$("#bpic");if(bp)bp.onclick=()=>showCollage(chunks);
   const bt=$("#btest");if(bt)bt.onclick=()=>{BLD.test={buf:""};renderBuild()};
   const nm=$("#bname");if(nm)nm.oninput=()=>{BLD.name=nm.value;saveBld()};
   const bs=$("#bsave");if(bs)bs.onclick=()=>{
@@ -716,6 +718,61 @@ function renderBuild(){
     BLD.raw=it.raw;BLD.name=it.name;BLD.tech=it.tech||"chain";BLD.breaks=it.breaks||null;BLD.links=it.links||null;BLD._len=digitsOf(it.raw).length;
     saveBld();renderBuild();
   });
+}
+/* ---- сборка цепочки в одну картинку ---- */
+function rr(g,x,y,w,h,r){g.beginPath();g.moveTo(x+r,y);g.arcTo(x+w,y,x+w,y+h,r);g.arcTo(x+w,y+h,x,y+h,r);g.arcTo(x,y+h,x,y,r);g.arcTo(x,y,x+w,y,r);g.closePath()}
+function loadImg(c){return new Promise(res=>{const im=new Image();im.onload=()=>res(im);im.onerror=()=>res(null);im.src=src(c.img)})}
+async function showCollage(chunks){
+  const cards=chunks.map(chunkCard).filter(Boolean);
+  if(!cards.length)return;
+  const m=document.createElement("div");m.id="modal";
+  m.innerHTML=`<div class="inner center"><div id="cwrap" style="min-height:140px;display:flex;align-items:center;justify-content:center;color:var(--ink2)">Собираю картинку…</div>
+    <p class="chint" style="margin:10px 0 0">Долгое нажатие по картинке — «Сохранить в Фото».</p>
+    <button class="btn sec mt" id="ccl">Закрыть</button></div>`;
+  document.body.appendChild(m);
+  m.onclick=e=>{if(e.target===m||e.target.id==="ccl")m.remove()};
+  const imgs=await Promise.all(cards.map(loadImg));
+  const SZ=210,OVX=46,OVY=10,PAD=16;
+  const cols=Math.min(3,cards.length),rows=Math.ceil(cards.length/cols);
+  const stepX=SZ-OVX,stepY=SZ-OVY;
+  const W=PAD*2+stepX*(cols-1)+SZ,H=PAD*2+stepY*(rows-1)+SZ;
+  const cv=document.createElement("canvas"),R=2;
+  cv.width=W*R;cv.height=H*R;cv.style.width="100%";cv.style.height="auto";cv.style.borderRadius="12px";
+  const g=cv.getContext("2d");g.scale(R,R);
+  g.fillStyle="#eef0f8";g.fillRect(0,0,W,H);
+  cards.forEach((c,i)=>{
+    const r=Math.floor(i/cols);let col=i%cols;const rtl=r%2===1;if(rtl)col=cols-1-col;
+    const x=PAD+stepX*col,y=PAD+stepY*r;
+    const tilt=(((i*37)%9)-4)*Math.PI/180;
+    const S1=SZ-10;
+    /* номер ставим с той стороны, которую не перекроет следующая карточка */
+    const bx=rtl?SZ-25:25;
+    g.save();
+    g.translate(x+SZ/2,y+SZ/2);g.rotate(tilt);g.translate(-SZ/2,-SZ/2);
+    g.save();g.shadowColor="rgba(20,20,50,.35)";g.shadowBlur=14;g.shadowOffsetY=4;
+    g.fillStyle="#fff";rr(g,0,0,SZ,SZ,18);g.fill();g.restore();
+    g.save();rr(g,5,5,S1,S1,14);g.clip();
+    const im=imgs[i];
+    if(im){const s=Math.max(S1/im.width,S1/im.height),w=im.width*s,h=im.height*s;
+      g.drawImage(im,5+(S1-w)/2,5+(S1-h)/2,w,h)}
+    g.fillStyle="rgba(2,2,184,.88)";g.fillRect(5,SZ-37,S1,32);
+    g.fillStyle="#fff";g.font="800 15px -apple-system,BlinkMacSystemFont,sans-serif";g.textAlign="center";g.textBaseline="middle";
+    let nm=c.name;if(nm.length>14)nm=nm.slice(0,13)+"…";
+    g.fillText(nm,SZ/2,SZ-21);
+    g.restore();
+    g.beginPath();g.arc(bx,25,18,0,7);g.fillStyle="#2323c8";g.fill();
+    g.strokeStyle="#fff";g.lineWidth=2;g.stroke();
+    g.fillStyle="#fff";g.font="800 "+(c.q.length>2?13:15)+"px -apple-system,sans-serif";g.textAlign="center";g.textBaseline="middle";
+    g.fillText(c.q,bx,25);
+    g.restore();
+  });
+  const w=$("#cwrap");if(!w)return;
+  w.innerHTML="";w.style.display="block";w.appendChild(cv);
+  const a=document.createElement("a");
+  a.className="btn mt";a.textContent="Скачать картинку";a.download="mnemo-"+digitsOf(BLD.raw)+".png";
+  try{a.href=cv.toDataURL("image/png")}catch(e){}
+  a.style.textDecoration="none";
+  w.appendChild(a);
 }
 function buildTest(chunks,d){
   const t=BLD.test;
