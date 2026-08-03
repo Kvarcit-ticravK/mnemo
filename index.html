@@ -131,6 +131,27 @@ h3{font-size:15px;margin:14px 0 6px}
 .libitem:last-child{border:none}
 .libitem .lt{font-weight:700;font-size:14.5px}
 .libitem .ld{color:var(--ink2);font-size:12.5px}
+/* constructor */
+.splitter{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;background:var(--card);border-radius:12px;box-shadow:var(--shadow);padding:8px 4px;margin:0 0 12px}
+.splitter .dg{font-size:24px;font-weight:800;color:var(--ink)}
+.splitter .gp{width:16px;height:32px;padding:0;border:none;background:transparent;position:relative;cursor:pointer}
+.splitter .gp:after{content:"";position:absolute;left:7px;top:5px;bottom:5px;width:2px;border-radius:2px;background:#dcdcea}
+.splitter .gp.on:after{background:var(--accent);width:3px;left:6px}
+.chainrow{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:10px}
+.chainrow .fcard{margin:0;max-width:110px;flex:none}
+.chainrow .ci{font-size:12px;font-weight:800;color:var(--ink3)}
+.chainrow .cn{font-size:20px;font-weight:800;line-height:1.15}
+.chainrow .cq{color:var(--accent-dark);font-size:15px;font-weight:700}
+.clinkwrap{text-align:center;margin:7px 0}
+.clink{display:inline-block;background:var(--accent-soft);color:var(--accent-dark);font-weight:700;font-size:13.5px;padding:6px 14px;border-radius:99px;cursor:pointer;border:none}
+.trio{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:10px}
+.trio .fcard{max-width:none}
+.bmiss{background:var(--bad-soft);color:var(--bad);border-radius:12px;padding:10px 14px;font-size:14px;margin-bottom:10px}
+.savedrow{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.savedrow:last-child{border:none}
+.savedrow .sn{font-weight:700;font-size:14.5px}
+.savedrow .sv{color:var(--ink2);font-size:12.5px;letter-spacing:1px}
+.savedrow .x{margin-left:auto;color:var(--ink3);font-size:20px;cursor:pointer;padding:0 6px;flex:none}
 </style>
 </head>
 <body>
@@ -219,6 +240,7 @@ let TAB="course";
 document.querySelectorAll("#nav button").forEach(b=>b.onclick=()=>{
   if(typeof SP!=="undefined"&&SP&&SP.timer)clearInterval(SP.timer);
   CUR=null;RET=null;FL=null;SP=null;
+  if(typeof BLD!=="undefined"&&BLD)BLD.test=null;
   TAB=b.dataset.tab;VIEW=null;render();
 });
 function setNav(){document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===TAB))}
@@ -485,13 +507,20 @@ let RET=null; // возврат в урок курса после блока к�
 let CODEVIEW=store.get("mnemo_cv","learn");
 let CODECAT=store.get("mnemo_cat","num");
 let CODEH=0;
-function renderCodes(){
-  if(CUR)return; // block trainer active
-  let html=`<h1>Зрительные коды</h1>
-  <div class="chips">
+function codeChips(){
+  return `<div class="chips">
     <button class="chip ${CODEVIEW==="learn"?"on":""}" data-v="learn">Учить</button>
     <button class="chip ${CODEVIEW==="ref"?"on":""}" data-v="ref">Справочник</button>
+    <button class="chip ${CODEVIEW==="build"?"on":""}" data-v="build">Конструктор</button>
   </div>`;
+}
+function wireCodeChips(){
+  document.querySelectorAll(".chip[data-v]").forEach(b=>b.onclick=()=>{CODEVIEW=b.dataset.v;store.set("mnemo_cv",CODEVIEW);renderCodes()});
+}
+function renderCodes(){
+  if(CUR)return; // block trainer active
+  if(CODEVIEW==="build")return renderBuild();
+  let html=`<h1>Зрительные коды</h1>`+codeChips();
   if(CODEVIEW==="learn"){
     html+=`<p class="sub">Заучивайте коды блоками: изучение → упражнения → скоростное кодирование. Блок засчитывается от 85% правильных.</p>`;
     BLOCKS.forEach((B,i)=>{
@@ -538,6 +567,186 @@ function renderCodes(){
       <button class="btn mt" id="cl">Закрыть</button></div>`;
     document.body.appendChild(m);
     m.onclick=e=>{if(e.target===m||e.target.id==="cl")m.remove()};
+  });
+}
+/* ============ КОНСТРУКТОР ЗРИТЕЛЬНЫХ КОДОВ ============ */
+let BLD=store.get("mnemo_bld",null);
+if(!BLD||typeof BLD!=="object")BLD={raw:"",tech:"chain",size:2,breaks:null,links:null,name:""};
+BLD.test=null;
+const saveBld=()=>store.set("mnemo_bld",{raw:BLD.raw,tech:BLD.tech,size:BLD.size,breaks:BLD.breaks,links:BLD.links,name:BLD.name});
+const digitsOf=s=>String(s||"").replace(/\D/g,"").slice(0,60);
+function defBreaks(n,size){const b=[];let st=size;
+  if(size===2&&n%2===1&&n>2){b.push(1);st=3} // нечетное число: первая цифра отдельным образом
+  for(let i=st;i<n;i+=size)b.push(i);return b}
+function chunksOf(d,breaks){
+  const cuts=[0].concat((breaks||[]).filter(x=>x>0&&x<d.length).sort((a,b)=>a-b)).concat([d.length]);
+  const out=[];for(let i=0;i<cuts.length-1;i++)if(cuts[i+1]>cuts[i])out.push(d.slice(cuts[i],cuts[i+1]));
+  return out;
+}
+function chunkCard(ch){
+  if(ch.length===1)return byId[ch==="0"?"n:0":"n:0"+ch];
+  if(ch.length===2)return byId["n:"+ch];
+  if(ch.length===3)return byId["t:"+ch];
+  return null;
+}
+const LINKS={
+  chain:["справа торчит","сверху висит","приклеен сбоку","продет насквозь","лежит сверху","проткнут насквозь","растёт изнутри","обмотан вокруг","надет сверху","воткнут внутрь","стоит на нём","прибит к нему"],
+  nest:["увеличиваем деталь — внутри","приближаемся, в детали","всматриваемся — в детали","в углу картинки, крупно","заглядываем внутрь — там"],
+  trio:["дальше","затем","и потом"],
+  cicero:["следующее место","дальше по маршруту"]
+};
+const TECHS=[["chain","Цепочка"],["nest","Матрёшка"],["trio","Тройками"],["cicero","Цицерон"]];
+const TECHNOTE={
+  chain:"Образы одного размера. Соединяйте строго попарно и обязательно так, чтобы они соприкасались или проходили друг сквозь друга: второй пристраивайте вправо или сверху. Вспоминается цепочка только по порядку, от первого образа.",
+  nest:"Первый образ — крупно. Выделяете в нём деталь, мысленно увеличиваете её — и внутри детали помещаете второй образ. Дальше так же. Матрёшка не путается с другими цепочками.",
+  trio:"Объединяйте образы по три в одну картинку: первый — основа, к нему подсоединяете второй и третий. Тройки затем связываются между собой.",
+  cicero:"Расставьте образы по своим опорным образам (комната, маршрут, знакомое здание): один опорный образ — один код. Порядок не потеряется, вспоминать можно с любого места."
+};
+function linksFor(n,tech,keep){
+  const pool=LINKS[tech]||LINKS.chain;
+  const out=[];for(let i=0;i<n;i++){
+    const old=keep&&keep[i];
+    out.push(typeof old==="number"?old%pool.length:Math.floor(Math.random()*pool.length));
+  }
+  return out;
+}
+function bldChainText(chunks,links){
+  const pool=LINKS[BLD.tech]||LINKS.chain;
+  return chunks.map((ch,i)=>{
+    const c=chunkCard(ch);const nm=c?c.name:"?";
+    return ch+" "+nm+(i<chunks.length-1?"  →("+pool[links[i]%pool.length]+")→  ":"");
+  }).join("");
+}
+function renderBuild(){
+  const d=digitsOf(BLD.raw);
+  if(BLD.breaks===null||BLD._len!==d.length){BLD.breaks=defBreaks(d.length,BLD.size||2);BLD._len=d.length;BLD.links=null}
+  const chunks=d?chunksOf(d,BLD.breaks):[];
+  if(!BLD.links||BLD.links.length!==Math.max(0,chunks.length-1))BLD.links=linksFor(Math.max(0,chunks.length-1),BLD.tech,BLD.links);
+  if(BLD.test)return buildTest(chunks,d);
+  const cards=chunks.map(chunkCard);
+  const bad=chunks.filter((ch,i)=>!cards[i]);
+  const pool=LINKS[BLD.tech]||LINKS.chain;
+  let html=`<h1>Зрительные коды</h1>`+codeChips()+
+  `<div class="panel">
+    <input class="search" id="braw" inputmode="numeric" placeholder="Введите число: телефон, дату, пароль…" value="${esc(BLD.raw)}" style="margin-bottom:8px">
+    <div class="chips" style="margin-bottom:0">
+      <button class="chip ${BLD.size===2?"on":""}" data-sz="2">по 2 цифры</button>
+      <button class="chip ${BLD.size===3?"on":""}" data-sz="3">по 3</button>
+      <button class="chip" id="bclear">Очистить</button>
+    </div>
+  </div>`;
+  if(d){
+    html+=`<p class="sub" style="margin:0 0 6px">${chunks.length} образ${chunks.length%10===1&&chunks.length!==11?"":chunks.length%10>1&&chunks.length%10<5&&(chunks.length<12||chunks.length>14)?"а":"ов"} · нажимайте на разделители, чтобы двигать границы.</p>
+    <div class="splitter">`;
+    for(let i=0;i<d.length;i++){
+      html+=`<span class="dg">${d[i]}</span>`;
+      if(i<d.length-1)html+=`<button class="gp ${BLD.breaks.includes(i+1)?"on":""}" data-g="${i+1}"></button>`;
+    }
+    html+=`</div>
+    <div class="chips">${TECHS.map(t=>`<button class="chip ${BLD.tech===t[0]?"on":""}" data-tc="${t[0]}">${t[1]}</button>`).join("")}</div>
+    <div class="note">${esc(TECHNOTE[BLD.tech])}</div>`;
+    if(bad.length)html+=`<div class="bmiss">Нет образа для куска «${esc(bad.join(", "))}» — разбейте это место по 2–3 цифры.</div>`;
+    if(BLD.tech==="trio"){
+      for(let g=0;g<chunks.length;g+=3){
+        const grp=chunks.slice(g,g+3);
+        html+=`<div class="steps" style="text-align:left;font-weight:700;color:var(--accent-dark);margin:10px 0 4px">Картинка ${g/3+1}: ${grp.map(ch=>{const c=chunkCard(ch);return c?c.name:ch}).join(" + ")}</div>
+        <div class="trio">${grp.map(ch=>{const c=chunkCard(ch);return c?`<div>${cardHTML(c,"full","cell")}</div>`:`<div class="center">${esc(ch)}</div>`}).join("")}</div>`;
+        if(g+3<chunks.length)html+=`<div class="clinkwrap"><span class="clink">↓ дальше ↓</span></div>`;
+      }
+    }else{
+      chunks.forEach((ch,i)=>{
+        const c=cards[i];
+        html+=`<div class="chainrow">
+          ${c?cardHTML(c,"photo"):""}
+          <div>
+            <div class="ci">${BLD.tech==="cicero"?"Опорный образ "+(i+1):"Образ "+(i+1)}</div>
+            <div class="cn">${esc(c?c.name:"—")}</div>
+            <div class="cq">${esc(ch)}</div>
+          </div>
+        </div>`;
+        if(i<chunks.length-1)html+=`<div class="clinkwrap"><button class="clink" data-l="${i}">↓ ${esc(pool[BLD.links[i]%pool.length])} ↓</button></div>`;
+      });
+    }
+    html+=`<div class="row mt"><button class="btn sec small" id="bshuf" style="flex:1">↻ Другие связки</button><button class="btn sec small" id="bcopy" style="flex:1">Скопировать текст</button></div>
+    <button class="btn mt" id="btest">Проверить себя</button>
+    <div class="panel mt">
+      <input class="search" id="bname" placeholder="Название: например «телефон мамы»" value="${esc(BLD.name||"")}" style="margin-bottom:8px">
+      <button class="btn sec small" id="bsave" style="width:100%">Сохранить в мои коды</button>
+    </div>`;
+  }else{
+    html+=`<div class="note">Наберите любое число — приложение разложит его на выученные образы и покажет готовую цепочку. Связку между образами придумывайте свою: подсказка ниже нужна только чтобы задать направление.</div>`;
+  }
+  const sv=S.saved||[];
+  if(sv.length){
+    html+=`<h3>Мои коды</h3><div class="panel">`+sv.map((it,i)=>`<div class="savedrow" data-s="${i}">
+      <div><div class="sn">${esc(it.name||"Без названия")}</div><div class="sv">${esc(it.raw)}</div></div>
+      <div class="x" data-del="${i}">✕</div></div>`).join("")+`</div>`;
+  }
+  app.innerHTML=html;
+  wireCodeChips();
+  const inp=$("#braw");
+  if(inp)inp.oninput=()=>{BLD.raw=inp.value;BLD.breaks=null;BLD.links=null;saveBld();
+    const pos=inp.selectionStart;renderBuild();const n=$("#braw");if(n){n.focus();try{n.setSelectionRange(pos,pos)}catch(e){}}};
+  document.querySelectorAll(".chip[data-sz]").forEach(b=>b.onclick=()=>{BLD.size=+b.dataset.sz;BLD.breaks=null;BLD.links=null;saveBld();renderBuild()});
+  const cl=$("#bclear");if(cl)cl.onclick=()=>{BLD.raw="";BLD.name="";BLD.breaks=null;BLD.links=null;saveBld();renderBuild()};
+  document.querySelectorAll(".gp").forEach(b=>b.onclick=()=>{
+    const g=+b.dataset.g;const s=new Set(BLD.breaks);s.has(g)?s.delete(g):s.add(g);
+    BLD.breaks=Array.from(s).sort((a,b)=>a-b);BLD.links=null;saveBld();renderBuild();
+  });
+  document.querySelectorAll(".chip[data-tc]").forEach(b=>b.onclick=()=>{BLD.tech=b.dataset.tc;BLD.links=null;saveBld();renderBuild()});
+  document.querySelectorAll(".clink[data-l]").forEach(b=>b.onclick=()=>{BLD.links[+b.dataset.l]=(BLD.links[+b.dataset.l]+1)%pool.length;saveBld();renderBuild()});
+  const sh=$("#bshuf");if(sh)sh.onclick=()=>{BLD.links=linksFor(Math.max(0,chunks.length-1),BLD.tech,null);saveBld();renderBuild()};
+  const cp=$("#bcopy");if(cp)cp.onclick=()=>{
+    const t=d+"\n"+bldChainText(chunks,BLD.links);
+    try{navigator.clipboard.writeText(t)}catch(e){}
+    const ta=document.createElement("textarea");ta.value=t;ta.style.position="fixed";ta.style.opacity="0";document.body.appendChild(ta);ta.select();
+    try{document.execCommand("copy")}catch(e){}
+    ta.remove();cp.textContent="Скопировано ✓";setTimeout(()=>{cp.textContent="Скопировать текст"},1200);
+  };
+  const bt=$("#btest");if(bt)bt.onclick=()=>{BLD.test={buf:""};renderBuild()};
+  const nm=$("#bname");if(nm)nm.oninput=()=>{BLD.name=nm.value;saveBld()};
+  const bs=$("#bsave");if(bs)bs.onclick=()=>{
+    S.saved=S.saved||[];
+    S.saved.unshift({name:BLD.name||("Код "+d),raw:BLD.raw,breaks:BLD.breaks,tech:BLD.tech,links:BLD.links});
+    S.saved=S.saved.slice(0,50);save();haptic();renderBuild();
+  };
+  document.querySelectorAll(".savedrow").forEach(el=>el.onclick=e=>{
+    if(e.target.dataset.del!==undefined){S.saved.splice(+e.target.dataset.del,1);save();renderBuild();return}
+    const it=S.saved[+el.dataset.s];
+    BLD.raw=it.raw;BLD.name=it.name;BLD.tech=it.tech||"chain";BLD.breaks=it.breaks||null;BLD.links=it.links||null;BLD._len=digitsOf(it.raw).length;
+    saveBld();renderBuild();
+  });
+}
+function buildTest(chunks,d){
+  const t=BLD.test;
+  const cards=chunks.map(chunkCard);
+  let html=`<h1>Проверка</h1>`+codeChips()+
+  `<p class="sub">Смотрите на цепочку и восстановите число: каждый образ — свой код.</p>`;
+  chunks.forEach((ch,i)=>{
+    const c=cards[i];
+    html+=`<div class="chainrow">${c?cardHTML(c,"photo"):""}<div><div class="ci">Образ ${i+1}</div><div class="cn">${esc(c?c.name:"—")}</div></div></div>`;
+    if(i<chunks.length-1)html+=`<div class="clinkwrap"><span class="clink">↓</span></div>`;
+  });
+  html+=`<div class="panel center mt">
+    <div class="padshow" id="tout">${t.buf?esc(t.buf):'<span class="ph">'+"•".repeat(d.length)+"</span>"}</div>
+    <div class="pad">${[1,2,3,4,5,6,7,8,9,"⌫",0,"OK"].map(k=>`<button data-k="${k}">${k}</button>`).join("")}</div>
+    <div id="tfb"></div>
+  </div>
+  <button class="btn ghost mt" id="tback">← Назад к конструктору</button>`;
+  app.innerHTML=html;
+  wireCodeChips();
+  $("#tback").onclick=()=>{BLD.test=null;renderBuild()};
+  const check=()=>{
+    const ok=t.buf===d;haptic();
+    $("#tfb").innerHTML=`<div class="feedback ${ok?"ok":"no"}">${ok?"✓ Верно":"✗ Правильно: "+esc(d)}</div>`;
+  };
+  document.querySelectorAll(".pad button").forEach(b=>b.onclick=()=>{
+    const k=b.dataset.k;
+    if(k==="⌫")t.buf=t.buf.slice(0,-1);
+    else if(k==="OK"){check();return}
+    else if(t.buf.length<d.length)t.buf+=k;
+    $("#tout").innerHTML=t.buf?esc(t.buf)+(t.buf.length<d.length?'<span class="ph">'+"•".repeat(d.length-t.buf.length)+"</span>":""):'<span class="ph">'+"•".repeat(d.length)+"</span>";
+    if(t.buf.length===d.length)setTimeout(check,120);
   });
 }
 /* ============ block trainer engine ============ */
